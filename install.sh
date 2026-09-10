@@ -17,9 +17,6 @@ PATH_X=/videotest/download
 say() { printf '%s\n' "$*"; }
 err() { say "ERROR: $*" >&2; exit 1; }
 
-# The installer is normally downloaded through a pipe, so stdin is NOT the
-# terminal. Ask through /dev/console first, then /dev/tty. A UUID may also be
-# supplied as the first argument: sh install.sh UUID
 UUID="${1:-${VLESS_UUID:-}}"
 if [ -z "$UUID" ]; then
     if [ -r /dev/console ] && [ -w /dev/console ]; then
@@ -43,10 +40,13 @@ opkg print-architecture | awk '$2=="mipsel-3.4"{ok=1} END{exit ok?0:1}' || err "
 
 say "[1/7] Installing dependencies..."
 opkg update >/dev/null 2>&1 || err "opkg update failed."
-opkg install xray-core busybox >/dev/null 2>&1 || err "Could not install xray-core/busybox."
+opkg install xray-core busybox geoip >/dev/null 2>&1 || err "Could not install xray-core/busybox/geoip."
 XRAY=/opt/bin/xray
 [ -x "$XRAY" ] || XRAY="$(command -v xray 2>/dev/null || true)"
 [ -x "$XRAY" ] || err "Xray binary not found."
+GEOIP="/opt/share/xray/geoip.dat"
+[ -f "$GEOIP" ] || GEOIP="/opt/share/xray/geoip.dat"
+[ -f "$GEOIP" ] || { say "ERROR: geoip.dat not found after installing geoip." >&2; exit 1; }
 say "Xray: $($XRAY version 2>/dev/null | head -1 || true)"
 
 mkdir -p "$BASE/www/cgi-bin"
@@ -153,7 +153,7 @@ cat > "$CONF" <<EOF
 EOF
 
 say "[3/7] Validating configuration..."
-"$XRAY" run -test -config "$CONF" >/tmp/kvpn-test.txt 2>&1 || { cat /tmp/kvpn-test.txt; err "Xray rejected the configuration."; }
+Xray run -test -config "$CONF" >/tmp/kvpn-test.txt 2>&1 || { cat /tmp/kvpn-test.txt; err "Xray rejected the configuration."; }
 
 say "[4/7] Installing VPN controller..."
 cat > "$BASE/kvpn" <<'EOF'
@@ -164,7 +164,6 @@ PID=$BASE/xray.pid
 LOG=$BASE/xray.log
 XRAY=/opt/bin/xray
 SERVER=cdn.mytestlanding.shop
-
 wan_if(){ ip route show default 2>/dev/null | awk 'NR==1{print $5;exit}'; }
 server_ip(){ getent ahostsv4 "$SERVER" 2>/dev/null | awk 'NR==1{print $1;exit}'; }
 add_routes(){
@@ -211,7 +210,6 @@ case "$QUERY_STRING" in
 esac
 EOF
 chmod +x "$BASE/www/cgi-bin/kvpn.cgi"
-
 cat > "$BASE/start-web.sh" <<'EOF'
 #!/bin/sh
 BASE=/opt/kvpn
@@ -225,7 +223,6 @@ sleep 1
 kill -0 "$(cat "$PID")" 2>/dev/null || { rm -f "$PID"; exit 1; }
 EOF
 chmod +x "$BASE/start-web.sh"
-
 cat > /opt/etc/init.d/S98kvpn-web <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -235,7 +232,6 @@ case "$1" in
 esac
 EOF
 chmod +x /opt/etc/init.d/S98kvpn-web
-
 cat > /opt/etc/init.d/S99kvpn <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -249,10 +245,8 @@ chmod +x /opt/etc/init.d/S99kvpn
 say "[6/7] Starting VPN..."
 /opt/kvpn/kvpn stop >/dev/null 2>&1 || true
 /opt/kvpn/kvpn start || err "VPN could not be started. Run: /opt/kvpn/kvpn log"
-
 say "[7/7] Starting web panel..."
 /opt/kvpn/start-web.sh || err "Web panel failed to start. Check: ps | grep httpd"
-
 ROUTER_IP="$(ip -4 addr show 2>/dev/null | awk '/inet / && $NF!="lo" {sub(/\/.*$/, "", $2); if($2 ~ /^192\.168\./){print $2; exit}}')"
 [ -n "$ROUTER_IP" ] || ROUTER_IP='<router-ip>'
 say ""
