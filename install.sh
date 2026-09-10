@@ -52,34 +52,12 @@ CONF="$BASE/config.json"
 PID="$BASE/xray.pid"
 LOG="$BASE/xray.log"
 SERVER=cdn.mytestlanding.shop
-find_xray(){
- X="$(command -v xray 2>/dev/null || true)"
- if [ -n "$X" ] && [ -x "$X" ]; then printf '%s\n' "$X"; return 0; fi
- for p in /opt/sbin/xray /opt/bin/xray /usr/bin/xray /usr/sbin/xray; do [ -x "$p" ] && { printf '%s\n' "$p"; return 0; }; done
- return 1
-}
+find_xray(){ X="$(command -v xray 2>/dev/null || true)"; if [ -n "$X" ] && [ -x "$X" ]; then printf '%s\n' "$X"; return 0; fi; for p in /opt/sbin/xray /opt/bin/xray /usr/bin/xray /usr/sbin/xray; do [ -x "$p" ] && { printf '%s\n' "$p"; return 0; }; done; return 1; }
 wan_if(){ ip route show default 2>/dev/null | awk 'NR==1{print $5;exit}'; }
 server_ip(){ getent ahostsv4 "$SERVER" 2>/dev/null | awk 'NR==1{print $1;exit}'; }
-add_routes(){
- WAN=$(wan_if); [ -n "$WAN" ] || { echo "No default WAN interface."; return 1; }
- SIP=$(server_ip); [ -n "$SIP" ] || { echo "Cannot resolve $SERVER."; return 1; }
- GW=$(ip route show default 2>/dev/null | awk 'NR==1{for(i=1;i<=NF;i++)if($i=="via"){print $(i+1);exit}}')
- if [ -n "$GW" ]; then ip route replace "$SIP/32" via "$GW" dev "$WAN" 2>/dev/null || ip route replace "$SIP/32" dev "$WAN"; else ip route replace "$SIP/32" dev "$WAN" 2>/dev/null || true; fi
- ip route replace 0.0.0.0/1 dev kvpn0
- ip route replace 128.0.0.0/1 dev kvpn0
-}
+add_routes(){ WAN=$(wan_if); [ -n "$WAN" ] || { echo "No default WAN interface."; return 1; }; SIP=$(server_ip); [ -n "$SIP" ] || { echo "Cannot resolve $SERVER."; return 1; }; GW=$(ip route show default 2>/dev/null | awk 'NR==1{for(i=1;i<=NF;i++)if($i=="via"){print $(i+1);exit}}'); if [ -n "$GW" ]; then ip route replace "$SIP/32" via "$GW" dev "$WAN" 2>/dev/null || ip route replace "$SIP/32" dev "$WAN"; else ip route replace "$SIP/32" dev "$WAN" 2>/dev/null || true; fi; ip route replace 0.0.0.0/1 dev kvpn0; ip route replace 128.0.0.0/1 dev kvpn0; }
 del_routes(){ ip route del 0.0.0.0/1 dev kvpn0 2>/dev/null || true; ip route del 128.0.0.0/1 dev kvpn0 2>/dev/null || true; }
-start(){
- if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN already running (PID $(cat "$PID"))."; return 0; fi
- XRAY=$(find_xray) || { echo "Xray binary not found in PATH or /opt/sbin,/opt/bin,/usr/bin,/usr/sbin."; return 1; }
- echo "Using Xray: $XRAY"
- rm -f "$PID"; "$XRAY" run -config "$CONF" >>"$LOG" 2>&1 & echo $! >"$PID"; sleep 2
- if ! kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN failed to start:"; tail -40 "$LOG" 2>/dev/null || true; rm -f "$PID"; return 1; fi
- sleep 1
- ip link show kvpn0 >/dev/null 2>&1 || { echo "kvpn0 was not created."; stop; return 1; }
- add_routes || { stop; return 1; }
- echo "VPN started (PID $(cat "$PID"))."
-}
+start(){ if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN already running (PID $(cat "$PID"))."; return 0; fi; XRAY=$(find_xray) || { echo "Xray binary not found."; return 1; }; rm -f "$PID"; "$XRAY" run -config "$CONF" >>"$LOG" 2>&1 & echo $! >"$PID"; sleep 2; if ! kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN failed to start:"; tail -40 "$LOG" 2>/dev/null || true; rm -f "$PID"; return 1; fi; sleep 1; ip link show kvpn0 >/dev/null 2>&1 || { echo "kvpn0 was not created."; stop; return 1; }; add_routes || { stop; return 1; }; echo "VPN started (PID $(cat "$PID"))."; }
 stop(){ del_routes; if [ -f "$PID" ]; then kill "$(cat "$PID")" 2>/dev/null || true; sleep 1; kill -9 "$(cat "$PID")" 2>/dev/null || true; rm -f "$PID"; fi; echo "VPN stopped."; }
 status(){ if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "RUNNING (PID $(cat "$PID"))."; ip -brief addr show kvpn0 2>/dev/null || true; ip route show | grep -E '(^0\.0\.0\.0/1|^128\.0\.0\.0/1)' 2>/dev/null || true; else echo "STOPPED."; return 1; fi; }
 restart(){ stop; sleep 1; start; }
@@ -107,8 +85,7 @@ PID=$BASE/web.pid
 [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null && exit 0
 HTTPD=/opt/bin/busybox
 [ -x "$HTTPD" ] || HTTPD=/bin/busybox
-"$HTTPD" httpd -f -p 0.0.0.0:18080 -h "$BASE/www" >/dev/null 2>&1 &
-echo $! >"$PID"
+"$HTTPD" httpd -f -p 0.0.0.0:18080 -h "$BASE/www" >/dev/null 2>&1 & echo $! >"$PID"
 sleep 1
 kill -0 "$(cat "$PID")" 2>/dev/null || { rm -f "$PID"; exit 1; }
 EOF
@@ -117,26 +94,20 @@ cat > /opt/etc/init.d/S98kvpn-web <<'EOF'
 #!/bin/sh
 case "$1" in start) /opt/kvpn/start-web.sh;; stop) [ -f /opt/kvpn/web.pid ] && kill "$(cat /opt/kvpn/web.pid)" 2>/dev/null || true; rm -f /opt/kvpn/web.pid;; restart) "$0" stop; "$0" start;; esac
 EOF
-chmod +x /opt/etc/init.d/S98kvpn-web
 cat > /opt/etc/init.d/S99kvpn <<'EOF'
 #!/bin/sh
 case "$1" in start) /opt/kvpn/kvpn start >/dev/null 2>&1;; stop) /opt/kvpn/kvpn stop >/dev/null 2>&1;; restart) /opt/kvpn/kvpn restart >/dev/null 2>&1;; esac
 EOF
-chmod +x /opt/etc/init.d/S99kvpn
+chmod +x /opt/etc/init.d/S98kvpn-web /opt/etc/init.d/S99kvpn
 say "[6/7] Starting VPN..."
 /opt/kvpn/kvpn stop >/dev/null 2>&1 || true
 /opt/kvpn/kvpn start || err "VPN could not be started. Run: /opt/kvpn/kvpn log"
 say "[7/7] Starting web panel..."
-/opt/kvpn/start-web.sh || err "Web panel failed to start. Check: ps | grep httpd"
+/opt/kvpn/start-web.sh || err "Web panel failed to start."
 ROUTER_IP="$(ip -4 addr show 2>/dev/null | awk '/inet / && $NF!="lo" {sub(/\/.*$/, "", $2); if($2 ~ /^192\.168\./){print $2; exit}}')"
 [ -n "$ROUTER_IP" ] || ROUTER_IP='<router-ip>'
-say ""
-say "=============================================="
-say " KVPN installed successfully."
-say " Web panel: http://$ROUTER_IP:$PORT/"
-say " CLI:       /opt/kvpn/kvpn status"
-say " Logs:      /opt/kvpn/kvpn log"
-say " Config:    $CONF"
-say "=============================================="
-say "Manual split-default routes are used for Xray 26.2.6 compatibility."
-say "If LAN internet breaks: /opt/kvpn/kvpn stop"
+say "KVPN installed successfully."
+say "Web panel: http://$ROUTER_IP:$PORT/"
+say "CLI: /opt/kvpn/kvpn status"
+say "Logs: /opt/kvpn/kvpn log"
+say "Config: $CONF"
