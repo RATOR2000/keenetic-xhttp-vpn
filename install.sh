@@ -54,19 +54,100 @@ mkdir -p "$BASE/www/cgi-bin"
 say "[2/7] Writing Xray configuration..."
 cat > "$CONF" <<EOF
 {
-  "log": {"loglevel":"warning","access":"$BASE/access.log","error":"$LOG"},
-  "inbounds": [{
-    "tag":"tun-in","protocol":"tun",
-    "settings":{"name":"kvpn0","mtu":1400,"gateway":["172.19.0.1/30"]}
-  }],
-  "outbounds": [
-    {"tag":"proxy","protocol":"vless","settings":{"vnext":[{"address":"$SERVER","port":443,"users":[{"id":"$UUID","encryption":"none"}]}]},"streamSettings":{"network":"xhttp","security":"tls","tlsSettings":{"serverName":"$SNI","allowInsecure":false,"alpn":["h2"]},"xhttpSettings":{"host":"","path":"$PATH_X","mode":"packet-up","extra":{"uplinkHTTPMethod":"GET","xPaddingBytes":"100-1000","xPaddingHeader":"X-Cache","xPaddingKey":"_dc","xPaddingMethod":"tokenish","xPaddingObfsMode":true,"xPaddingPlacement":"queryInHeader","xmux":{"cMaxReuseTimes":0,"hKeepAlivePeriod":0,"hMaxRequestTimes":"100-200","hMaxReusableSecs":"300-600","maxConcurrency":0,"maxConnections":2}}}}},
-    {"tag":"direct","protocol":"freedom"},
-    {"tag":"block","protocol":"blackhole"}
+  "log": {
+    "loglevel": "warning",
+    "access": "$BASE/access.log",
+    "error": "$LOG"
+  },
+  "inbounds": [
+    {
+      "tag": "tun-in",
+      "protocol": "tun",
+      "settings": {
+        "name": "kvpn0",
+        "mtu": 1400,
+        "gateway": ["172.19.0.1/30"]
+      }
+    }
   ],
-  "routing":{"domainStrategy":"AsIs","rules":[
-    {"type":"field","ip":["geoip:private"],"outboundTag":"direct"},
-    {"type":"field","ip":["127.0.0.0/8","169.254.0.0/16","224.0.0.0/4","240.0.0.0/4"],"outboundTag":"direct"}
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "$SERVER",
+            "port": $VPORT,
+            "users": [
+              {
+                "id": "$UUID",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "$SNI",
+          "allowInsecure": false,
+          "alpn": ["h2"]
+        },
+        "xhttpSettings": {
+          "host": "",
+          "path": "$PATH_X",
+          "mode": "packet-up",
+          "extra": {
+            "uplinkHTTPMethod": "GET",
+            "xPaddingBytes": "100-1000",
+            "xPaddingHeader": "X-Cache",
+            "xPaddingKey": "_dc",
+            "xPaddingMethod": "tokenish",
+            "xPaddingObfsMode": true,
+            "xPaddingPlacement": "queryInHeader",
+            "xmux": {
+              "cMaxReuseTimes": 0,
+              "hKeepAlivePeriod": 0,
+              "hMaxRequestTimes": "100-200",
+              "hMaxReusableSecs": "300-600",
+              "maxConcurrency": 0,
+              "maxConnections": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "224.0.0.0/4",
+          "240.0.0.0/4"
+        ],
+        "outboundTag": "direct"
+      }
+    ]
   }
 }
 EOF
