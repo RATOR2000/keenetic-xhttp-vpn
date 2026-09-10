@@ -40,13 +40,10 @@ opkg print-architecture | awk '$2=="mipsel-3.4"{ok=1} END{exit ok?0:1}' || err "
 
 say "[1/7] Installing dependencies..."
 opkg update >/dev/null 2>&1 || err "opkg update failed."
-opkg install xray-core busybox geoip >/dev/null 2>&1 || err "Could not install xray-core/busybox/geoip."
+opkg install xray-core busybox >/dev/null 2>&1 || err "Could not install xray-core/busybox."
 XRAY=/opt/bin/xray
 [ -x "$XRAY" ] || XRAY="$(command -v xray 2>/dev/null || true)"
 [ -x "$XRAY" ] || err "Xray binary not found."
-GEOIP="/opt/share/xray/geoip.dat"
-[ -f "$GEOIP" ] || GEOIP="/opt/share/xray/geoip.dat"
-[ -f "$GEOIP" ] || { say "ERROR: geoip.dat not found after installing geoip." >&2; exit 1; }
 say "Xray: $($XRAY version 2>/dev/null | head -1 || true)"
 
 mkdir -p "$BASE/www/cgi-bin"
@@ -134,14 +131,18 @@ cat > "$CONF" <<EOF
     "rules": [
       {
         "type": "field",
-        "ip": ["geoip:private"],
-        "outboundTag": "direct"
-      },
-      {
-        "type": "field",
         "ip": [
+          "10.0.0.0/8",
+          "100.64.0.0/10",
           "127.0.0.0/8",
           "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.0.0.0/24",
+          "192.0.2.0/24",
+          "192.168.0.0/16",
+          "198.18.0.0/15",
+          "198.51.100.0/24",
+          "203.0.113.0/24",
           "224.0.0.0/4",
           "240.0.0.0/4"
         ],
@@ -153,7 +154,7 @@ cat > "$CONF" <<EOF
 EOF
 
 say "[3/7] Validating configuration..."
-Xray run -test -config "$CONF" >/tmp/kvpn-test.txt 2>&1 || { cat /tmp/kvpn-test.txt; err "Xray rejected the configuration."; }
+"$XRAY" run -test -config "$CONF" >/tmp/kvpn-test.txt 2>&1 || { cat /tmp/kvpn-test.txt; err "Xray rejected the configuration."; }
 
 say "[4/7] Installing VPN controller..."
 cat > "$BASE/kvpn" <<'EOF'
