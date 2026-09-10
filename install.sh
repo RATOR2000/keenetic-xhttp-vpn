@@ -1,5 +1,5 @@
 #!/bin/sh
-# Keenetic Extra / Entware mipselsf-k3.4
+# Keenetic Extra / Entware
 # VLESS + XHTTP + TLS + TUN
 set -eu
 BASE=/opt/kvpn
@@ -19,7 +19,6 @@ case "$UUID" in ????????-????-????-????-????????????) ;; *) err "VLESS UUID was 
 [ "$(id -u)" = 0 ] || err "Run as root."
 command -v opkg >/dev/null 2>&1 || err "Entware/opkg not found."
 [ -f /opt/etc/entware_release ] || err "/opt/etc/entware_release not found."
-opkg print-architecture | awk '$2=="mipsel-3.4"{ok=1} END{exit ok?0:1}' || err "This installer requires Entware mipsel-3.4."
 [ -c /dev/net/tun ] || err "/dev/net/tun is missing."
 say "[1/7] Installing dependencies..."
 opkg update >/dev/null 2>&1 || err "opkg update failed."
@@ -54,8 +53,12 @@ LOG="$BASE/xray.log"
 SERVER=cdn.mytestlanding.shop
 find_xray(){ X="$(command -v xray 2>/dev/null || true)"; if [ -n "$X" ] && [ -x "$X" ]; then printf '%s\n' "$X"; return 0; fi; for p in /opt/sbin/xray /opt/bin/xray /usr/bin/xray /usr/sbin/xray; do [ -x "$p" ] && { printf '%s\n' "$p"; return 0; }; done; return 1; }
 wan_if(){ ip route show default 2>/dev/null | awk 'NR==1{print $5;exit}'; }
-server_ip(){ getent ahostsv4 "$SERVER" 2>/dev/null | awk 'NR==1{print $1;exit}'; }
-add_routes(){ WAN=$(wan_if); [ -n "$WAN" ] || { echo "No default WAN interface."; return 1; }; SIP=$(server_ip); [ -n "$SIP" ] || { echo "Cannot resolve $SERVER."; return 1; }; GW=$(ip route show default 2>/dev/null | awk 'NR==1{for(i=1;i<=NF;i++)if($i=="via"){print $(i+1);exit}}'); if [ -n "$GW" ]; then ip route replace "$SIP/32" via "$GW" dev "$WAN" 2>/dev/null || ip route replace "$SIP/32" dev "$WAN"; else ip route replace "$SIP/32" dev "$WAN" 2>/dev/null || true; fi; ip route replace 0.0.0.0/1 dev kvpn0; ip route replace 128.0.0.0/1 dev kvpn0; }
+server_ip(){
+    if command -v nslookup >/dev/null 2>&1; then
+        nslookup "$SERVER" 2>/dev/null | awk '/^Address [0-9]+: / {ip=$NF; if (ip !~ /^127\./ && ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {print ip; exit}}'
+    fi
+}
+add_routes(){ WAN=$(wan_if); [ -n "$WAN" ] || { echo "No default WAN interface."; return 1; }; SIP=$(server_ip); [ -n "$SIP" ] || { echo "Cannot resolve $SERVER. Use: nslookup $SERVER"; return 1; }; GW=$(ip route show default 2>/dev/null | awk 'NR==1{for(i=1;i<=NF;i++)if($i=="via"){print $(i+1);exit}}'); if [ -n "$GW" ]; then ip route replace "$SIP/32" via "$GW" dev "$WAN" 2>/dev/null || ip route replace "$SIP/32" dev "$WAN"; else ip route replace "$SIP/32" dev "$WAN" 2>/dev/null || true; fi; ip route replace 0.0.0.0/1 dev kvpn0; ip route replace 128.0.0.0/1 dev kvpn0; }
 del_routes(){ ip route del 0.0.0.0/1 dev kvpn0 2>/dev/null || true; ip route del 128.0.0.0/1 dev kvpn0 2>/dev/null || true; }
 start(){ if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN already running (PID $(cat "$PID"))."; return 0; fi; XRAY=$(find_xray) || { echo "Xray binary not found."; return 1; }; rm -f "$PID"; "$XRAY" run -config "$CONF" >>"$LOG" 2>&1 & echo $! >"$PID"; sleep 2; if ! kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN failed to start:"; tail -40 "$LOG" 2>/dev/null || true; rm -f "$PID"; return 1; fi; sleep 1; ip link show kvpn0 >/dev/null 2>&1 || { echo "kvpn0 was not created."; stop; return 1; }; add_routes || { stop; return 1; }; echo "VPN started (PID $(cat "$PID"))."; }
 stop(){ del_routes; if [ -f "$PID" ]; then kill "$(cat "$PID")" 2>/dev/null || true; sleep 1; kill -9 "$(cat "$PID")" 2>/dev/null || true; rm -f "$PID"; fi; echo "VPN stopped."; }
