@@ -41,8 +41,8 @@ opkg print-architecture | awk '$2=="mipsel-3.4"{ok=1} END{exit ok?0:1}' || err "
 say "[1/7] Installing dependencies..."
 opkg update >/dev/null 2>&1 || err "opkg update failed."
 opkg install xray-core busybox >/dev/null 2>&1 || err "Could not install xray-core/busybox."
-XRAY=/opt/bin/xray
-[ -x "$XRAY" ] || XRAY="$(command -v xray 2>/dev/null || true)"
+XRAY="$(command -v xray 2>/dev/null || true)"
+[ -x "$XRAY" ] || [ -x /opt/bin/xray ] && XRAY=/opt/bin/xray
 [ -x "$XRAY" ] || err "Xray binary not found."
 say "Xray: $($XRAY version 2>/dev/null | head -1 || true)"
 
@@ -157,39 +157,39 @@ say "[3/7] Validating configuration..."
 "$XRAY" run -test -config "$CONF" >/tmp/kvpn-test.txt 2>&1 || { cat /tmp/kvpn-test.txt; err "Xray rejected the configuration."; }
 
 say "[4/7] Installing VPN controller..."
-cat > "$BASE/kvpn" <<'EOF'
+cat > "$BASE/kvpn" <<EOF
 #!/bin/sh
 BASE=/opt/kvpn
-CONF=$BASE/config.json
-PID=$BASE/xray.pid
-LOG=$BASE/xray.log
-XRAY=/opt/bin/xray
+CONF=\$BASE/config.json
+PID=\$BASE/xray.pid
+LOG=\$BASE/xray.log
+XRAY=$XRAY
 SERVER=cdn.mytestlanding.shop
-wan_if(){ ip route show default 2>/dev/null | awk 'NR==1{print $5;exit}'; }
-server_ip(){ getent ahostsv4 "$SERVER" 2>/dev/null | awk 'NR==1{print $1;exit}'; }
+wan_if(){ ip route show default 2>/dev/null | awk 'NR==1{print \$5;exit}'; }
+server_ip(){ getent ahostsv4 "\$SERVER" 2>/dev/null | awk 'NR==1{print \$1;exit}'; }
 add_routes(){
-  WAN=$(wan_if); [ -n "$WAN" ] || { echo "No default WAN interface."; return 1; }
-  SIP=$(server_ip); [ -n "$SIP" ] || { echo "Cannot resolve $SERVER."; return 1; }
-  GW=$(ip route show default 2>/dev/null | awk 'NR==1{for(i=1;i<=NF;i++)if($i=="via"){print $(i+1);exit}}')
-  if [ -n "$GW" ]; then ip route replace "$SIP/32" via "$GW" dev "$WAN" 2>/dev/null || ip route replace "$SIP/32" dev "$WAN"; else ip route replace "$SIP/32" dev "$WAN" 2>/dev/null || true; fi
+  WAN=\$(wan_if); [ -n "\$WAN" ] || { echo "No default WAN interface."; return 1; }
+  SIP=\$(server_ip); [ -n "\$SIP" ] || { echo "Cannot resolve \$SERVER."; return 1; }
+  GW=\$(ip route show default 2>/dev/null | awk 'NR==1{for(i=1;i<=NF;i++)if(\$i=="via"){print \$(i+1);exit}}')
+  if [ -n "\$GW" ]; then ip route replace "\$SIP/32" via "\$GW" dev "\$WAN" 2>/dev/null || ip route replace "\$SIP/32" dev "\$WAN"; else ip route replace "\$SIP/32" dev "\$WAN" 2>/dev/null || true; fi
   ip route replace 0.0.0.0/1 dev kvpn0
   ip route replace 128.0.0.0/1 dev kvpn0
 }
 del_routes(){ ip route del 0.0.0.0/1 dev kvpn0 2>/dev/null || true; ip route del 128.0.0.0/1 dev kvpn0 2>/dev/null || true; }
 start(){
-  if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN already running (PID $(cat "$PID"))."; return 0; fi
-  rm -f "$PID"; "$XRAY" run -config "$CONF" >>"$LOG" 2>&1 & echo $! >"$PID"; sleep 2
-  if ! kill -0 "$(cat "$PID")" 2>/dev/null; then echo "VPN failed to start:"; tail -40 "$LOG" 2>/dev/null || true; rm -f "$PID"; return 1; fi
+  if [ -f "\$PID" ] && kill -0 "\$(cat "\$PID")" 2>/dev/null; then echo "VPN already running (PID \$(cat "\$PID"))."; return 0; fi
+  rm -f "\$PID"; "\$XRAY" run -config "\$CONF" >>"\$LOG" 2>&1 & echo \$! >"\$PID"; sleep 2
+  if ! kill -0 "\$(cat "\$PID")" 2>/dev/null; then echo "VPN failed to start:"; tail -40 "\$LOG" 2>/dev/null || true; rm -f "\$PID"; return 1; fi
   sleep 1
   ip link show kvpn0 >/dev/null 2>&1 || { echo "kvpn0 was not created."; stop; return 1; }
   add_routes || { stop; return 1; }
-  echo "VPN started (PID $(cat "$PID"))."
+  echo "VPN started (PID \$(cat "\$PID"))."
 }
-stop(){ del_routes; if [ -f "$PID" ]; then kill "$(cat "$PID")" 2>/dev/null || true; sleep 1; kill -9 "$(cat "$PID")" 2>/dev/null || true; rm -f "$PID"; fi; echo "VPN stopped."; }
-status(){ if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "RUNNING (PID $(cat "$PID"))."; ip -brief addr show kvpn0 2>/dev/null || true; ip route show | grep -E '(^0\.0\.0\.0/1|^128\.0\.0\.0/1)' 2>/dev/null || true; else echo "STOPPED."; return 1; fi; }
+stop(){ del_routes; if [ -f "\$PID" ]; then kill "\$(cat "\$PID")" 2>/dev/null || true; sleep 1; kill -9 "\$(cat "\$PID")" 2>/dev/null || true; rm -f "\$PID"; fi; echo "VPN stopped."; }
+status(){ if [ -f "\$PID" ] && kill -0 "\$(cat "\$PID")" 2>/dev/null; then echo "RUNNING (PID \$(cat "\$PID"))."; ip -brief addr show kvpn0 2>/dev/null || true; ip route show | grep -E '(^0\\.0\\.0\\.0/1|^128\\.0\\.0\\.0/1)' 2>/dev/null || true; else echo "STOPPED."; return 1; fi; }
 restart(){ stop; sleep 1; start; }
-log(){ tail -100 "$LOG" 2>/dev/null || echo "No log yet."; }
-case "${1:-status}" in start) start;; stop) stop;; restart) restart;; status) status;; log) log;; *) echo "Usage: $0 {start|stop|restart|status|log}"; exit 2;; esac
+log(){ tail -100 "\$LOG" 2>/dev/null || echo "No log yet."; }
+case "\${1:-status}" in start) start;; stop) stop;; restart) restart;; status) status;; log) log;; *) echo "Usage: \$0 {start|stop|restart|status|log}"; exit 2;; esac
 EOF
 chmod +x "$BASE/kvpn"
 
